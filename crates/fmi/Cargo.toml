@@ -1,0 +1,12 @@
+[package]
+name = "fmi"
+version = "0.1.0"
+authors = ["Ivan Reshetnikov <keenn2007@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+sysinfo = "0.10.3"
+
+[dependencies.winapi]
+version = "0.3"
+features = ["winuser", "securitybaseapi", "memoryapi"]

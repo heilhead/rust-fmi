@@ -1,0 +1,8 @@
+[package]
+name = "rust-fmi"
+version = "0.1.0"
+authors = ["Ivan Reshetnikov <keenn2007@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+fmi = { path = "crates/fmi" }
