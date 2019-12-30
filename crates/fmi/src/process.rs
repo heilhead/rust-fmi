@@ -1,13 +1,14 @@
 use super::util::*;
 use std::io::{Error, ErrorKind};
-use winapi::shared::minwindef::DWORD;
-use winapi::um::winnt::HANDLE;
+use winapi::shared::minwindef::{DWORD, HMODULE};
+use winapi::um::{psapi::MODULEINFO, winnt::HANDLE};
 
 pub use sysinfo::Process;
 pub use sysinfo::ProcessExt;
 
 pub type ProcessId = usize;
 pub type ProcessHandle = *mut winapi::ctypes::c_void;
+pub type ModuleBounds = (usize, usize);
 
 pub fn close_handle(handle: HANDLE) -> Result<(), Error> {
     if unsafe { winapi::um::handleapi::CloseHandle(handle) } == 0 {
@@ -17,7 +18,7 @@ pub fn close_handle(handle: HANDLE) -> Result<(), Error> {
     }
 }
 
-pub fn find_process<F>(filter: F) -> Option<ProcessId>
+pub fn get_process_list<F>(filter: Option<F>) -> Vec<sysinfo::Process>
 where
     F: Fn(&sysinfo::Process) -> bool,
 {
@@ -27,13 +28,13 @@ where
 
     system.refresh_all();
 
-    for (pid, process) in system.get_process_list() {
-        if filter(process) {
-            return Some(*pid);
-        }
-    }
+    let iter = system.get_process_list().values().map(|v| v.clone());
 
-    None
+    if let Some(filter) = filter {
+        iter.filter(|p| filter(p)).collect()
+    } else {
+        iter.collect()
+    }
 }
 
 pub fn open_process(pid: ProcessId) -> Result<ProcessHandle, Error> {
@@ -131,11 +132,38 @@ pub fn get_debug_privileges() -> Result<(), Error> {
     Ok(())
 }
 
-pub fn get_module_base(
+pub fn get_module_info(
     process_handle: ProcessHandle,
-    required_module_name: &str,
-) -> Result<usize, Error> {
-    use winapi::shared::minwindef::HMODULE;
+    module_handle: HMODULE,
+) -> Result<MODULEINFO, Error> {
+    use winapi::um::psapi::GetModuleInformation;
+
+    let mut result = MODULEINFO {
+        EntryPoint: std::ptr::null_mut(),
+        SizeOfImage: 0,
+        lpBaseOfDll: std::ptr::null_mut(),
+    };
+
+    let success = unsafe {
+        GetModuleInformation(
+            process_handle,
+            module_handle,
+            &mut result,
+            std::mem::size_of::<MODULEINFO>() as u32,
+        )
+    };
+
+    if success == 0 {
+        Err(Error::last_os_error())
+    } else {
+        Ok(result)
+    }
+}
+
+pub fn get_module_bounds(
+    process_handle: ProcessHandle,
+    module_name: &str,
+) -> Result<ModuleBounds, Error> {
     use winapi::um::psapi::{EnumProcessModules, GetModuleBaseNameA};
 
     let mut size_needed: DWORD = 0;
@@ -185,17 +213,21 @@ pub fn get_module_base(
             continue;
         }
 
-        let cur_name =
+        let cur_mod_name =
             std::str::from_utf8(&realign_unchecked(&module_name_buf)[..read_len as usize])
                 .map_err(|_| Error::new(ErrorKind::Other, "failed to convert string"))?;
 
-        if cur_name == required_module_name {
-            return Ok(module_handle as usize);
+        if cur_mod_name == module_name {
+            let info = get_module_info(process_handle, module_handle)?;
+            let start = module_handle as usize;
+            let end = info.SizeOfImage as usize + start;
+
+            return Ok((start, end));
         }
     }
 
     Err(Error::new(
         ErrorKind::NotFound,
-        format!("module not found: {}", required_module_name),
+        format!("module not found: {}", module_name),
     ))
 }

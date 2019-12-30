@@ -2,5 +2,6 @@
   "editor.rulers": [
     100
   ],
-  "editor.formatOnSave": true
+  "editor.formatOnSave": true,
+  "editor.detectIndentation": false
 }
